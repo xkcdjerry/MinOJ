@@ -133,7 +133,7 @@ async def _emit(tid: str, event: str, data):
 
 
 async def create_task(user_id: str, requirement: str, problem_id=None) -> dict:
-    cfg = storage.ai_config.data
+    cfg = storage.db.ai_config.data
     if not (cfg.get("provider_url") and cfg.get("model") and cfg.get("api_key")):
         raise OJException(400, "model config not set")
     if problem_id is not None and await storage.db.problems.get(problem_id) is None:
@@ -167,7 +167,7 @@ async def _run(tid: str):
         await storage.db.ai_tasks.put(tid, task)
         await _emit(tid, "progress", {"task_id": tid, "status": "running", "message": "正在处理命题需求"})
 
-        cfg = storage.ai_config.data
+        cfg = storage.db.ai_config.data
         result = await call_model(cfg, task)
         problem_data = result["problem"]
         ProblemModel(**problem_data)  # 校验生成结果，失败抛 ValidationError

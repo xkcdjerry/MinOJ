@@ -16,13 +16,13 @@ router = APIRouter()
 @router.put("/api/ai/model-config")
 async def set_model_config(body: AIConfigModel, current_user: dict = Depends(get_current_user)):
     cfg = body.model_dump()
-    await storage.ai_config.set(cfg)
+    await storage.db.ai_config.set(cfg)
     return ok("model config updated", ai_service.config_public(cfg))
 
 
 @router.get("/api/ai/model-config")
 async def get_model_config(current_user: dict = Depends(get_current_user)):
-    return ok("success", ai_service.config_public(storage.ai_config.data))
+    return ok("success", ai_service.config_public(storage.db.ai_config.data))
 
 
 @router.post("/api/ai/problem-tasks/")

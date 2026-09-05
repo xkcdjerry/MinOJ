@@ -5,6 +5,7 @@ __pycache__/
 venv/
 env/
 data/
+.pytest_oj_*/
 .pytest_cache/
 .mypy_cache/
 .streamlit/

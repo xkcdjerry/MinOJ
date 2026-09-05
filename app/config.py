@@ -23,6 +23,7 @@ INITIAL_ADMIN_PASSWORD = "admintestpassword"
 ACCESS_LOG_ACTION = "view_logs"
 
 # 子目录 / 文件
+WORK_DIR = os.path.join(DATA_DIR, "work")  # 评测临时工作目录
 PROBLEMS_DIR = os.path.join(DATA_DIR, "problems")
 USERS_DIR = os.path.join(DATA_DIR, "users")
 SUBMISSIONS_DIR = os.path.join(DATA_DIR, "submissions")

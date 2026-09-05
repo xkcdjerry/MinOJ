@@ -1,16 +1,18 @@
 """评测引擎。
 
-- 异步：编译/运行使用 asyncio.create_subprocess_exec；
-- 资源限制：时间用 asyncio.wait_for，内存用 psutil 后台线程轮询 RSS；
+- 异步：评测作为后台 asyncio 任务执行，编译/运行的阻塞子进程通过
+  ``asyncio.to_thread`` 移出事件循环（API 层仍为 async def，事件循环不阻塞）；
+- 资源限制：时间用 ``subprocess`` 的 timeout，内存用 psutil 后台线程轮询 RSS；
 - 判题结果：AC/WA/TLE/MLE/RE/CE/UNK；提交状态：pending/success/error。
 """
 import asyncio
 import os
 import shlex
 import shutil
-import tempfile
+import subprocess
 import threading
 import time
+import uuid
 
 import psutil
 
@@ -35,8 +37,9 @@ def _sanitize(msg: str, workdir: str) -> str:
 
 
 def _fill_cmd(template: str, src: str, exe: str) -> list:
-    # Windows 下 backslash 路径应视为字面量（posix=False），Linux 下保持 POSIX 语义
-    tokens = shlex.split(template, posix=(os.name != "nt"))
+    # POSIX 语义下双引号内的反斜杠按字面量保留、引号被剥离；
+    # {src}/{exe} 占位符在拆分后再填充，因此路径中的反斜杠不会经过 shlex。
+    tokens = shlex.split(template)
     return [t.replace("{src}", src).replace("{exe}", exe) for t in tokens]
 
 
@@ -61,12 +64,12 @@ def _monitor_memory(pid: int, mem_limit_mb: float, stop_event: threading.Event, 
         pass
 
 
-async def _run_case(run_cmd: list, input_bytes: bytes, time_limit: float, memory_limit: float, workdir: str):
-    proc = await asyncio.create_subprocess_exec(
-        *run_cmd,
-        stdin=asyncio.subprocess.PIPE,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
+def _run_case_sync(run_cmd: list, input_bytes: bytes, time_limit: float, memory_limit: float, workdir: str):
+    proc = subprocess.Popen(
+        run_cmd,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         cwd=workdir,
     )
     stop_event = threading.Event()
@@ -82,20 +85,20 @@ async def _run_case(run_cmd: list, input_bytes: bytes, time_limit: float, memory
     stdout_b = b""
     stderr_b = b""
     try:
-        stdout_b, stderr_b = await asyncio.wait_for(proc.communicate(input_bytes), timeout=time_limit)
+        stdout_b, stderr_b = proc.communicate(input_bytes, timeout=time_limit)
         elapsed = time.perf_counter() - start
         if mle_flag[0]:
             result = "MLE"
         elif proc.returncode != 0:
             result = "RE"
-    except asyncio.TimeoutError:
+    except subprocess.TimeoutExpired:
         elapsed = time_limit
         try:
             proc.kill()
         except Exception:
             pass
         try:
-            await proc.wait()
+            stdout_b, stderr_b = proc.communicate()
         except Exception:
             pass
         result = "TLE"
@@ -106,24 +109,20 @@ async def _run_case(run_cmd: list, input_bytes: bytes, time_limit: float, memory
     return result, elapsed, peak[0], stdout_b, stderr_b
 
 
-async def _compile(compile_cmd: list, workdir: str):
-    proc = await asyncio.create_subprocess_exec(
-        *compile_cmd,
-        stdin=asyncio.subprocess.DEVNULL,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        cwd=workdir,
-    )
+def _compile_sync(compile_cmd: list, workdir: str):
     try:
-        stdout_b, stderr_b = await asyncio.wait_for(proc.communicate(), timeout=config.COMPILE_TIMEOUT)
-    except asyncio.TimeoutError:
-        try:
-            proc.kill()
-        except Exception:
-            pass
+        proc = subprocess.run(
+            compile_cmd,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            cwd=workdir,
+            timeout=config.COMPILE_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired:
         return False, "compile timeout"
     if proc.returncode != 0:
-        msg = (stderr_b + stdout_b).decode("utf-8", errors="replace") or "compile error"
+        msg = (proc.stderr + proc.stdout).decode("utf-8", errors="replace") or "compile error"
         return False, msg
     return True, ""
 
@@ -143,7 +142,9 @@ async def run_judge(submission_id: str):
     testcases = problem.get("testcases", [])
     counts = len(testcases) * 10
 
-    workdir = tempfile.mkdtemp(prefix="oj_")
+    os.makedirs(config.WORK_DIR, exist_ok=True)
+    workdir = os.path.join(config.WORK_DIR, f"oj_{uuid.uuid4().hex}")
+    os.makedirs(workdir, exist_ok=True)
     try:
         src_name = "main" + (lang.get("file_ext") or "")
         src_path = os.path.join(workdir, src_name)
@@ -153,7 +154,8 @@ async def run_judge(submission_id: str):
 
         compile_info = {"result": "success", "message": ""}
         if lang.get("compile_cmd"):
-            ok_compile, cmsg = await _compile(_fill_cmd(lang["compile_cmd"], src_path, exe_path), workdir)
+            compile_cmd = _fill_cmd(lang["compile_cmd"], src_path, exe_path)
+            ok_compile, cmsg = await asyncio.to_thread(_compile_sync, compile_cmd, workdir)
             if not ok_compile:
                 compile_info = {"result": "failed", "message": _sanitize(cmsg, workdir)[:2000]}
                 details = [
@@ -189,8 +191,8 @@ async def run_judge(submission_id: str):
         score = 0
         for i, tc in enumerate(testcases):
             inp = (tc.get("input", "") + "\n").encode("utf-8")
-            result, elapsed, mem, stdout_b, stderr_b = await _run_case(
-                run_cmd, inp, float(tl), float(ml), workdir
+            result, elapsed, mem, stdout_b, stderr_b = await asyncio.to_thread(
+                _run_case_sync, run_cmd, inp, float(tl), float(ml), workdir
             )
             if result is None:
                 result = (

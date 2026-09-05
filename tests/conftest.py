@@ -2,14 +2,18 @@
 import asyncio
 import os
 import sys
-import tempfile
+import uuid
 from pathlib import Path
 
 # 确保项目根目录在 sys.path 上，使 `app` 包可被导入（无论 pytest 从何处启动）
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 # 必须在导入 app 之前设置，避免污染真实 data 目录
-os.environ["OJ_DATA_DIR"] = tempfile.mkdtemp(prefix="oj_test_")
+# 测试数据目录放在项目根目录下（沙箱仅允许写工作区），并在 .gitignore 中忽略
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+_TEST_DATA_DIR = _PROJECT_ROOT / f".pytest_oj_{uuid.uuid4().hex[:8]}"
+os.makedirs(_TEST_DATA_DIR, exist_ok=True)
+os.environ["OJ_DATA_DIR"] = str(_TEST_DATA_DIR)
 os.environ["OJ_SECRET_KEY"] = "test-secret-key"
 
 import httpx

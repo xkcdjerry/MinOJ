@@ -24,7 +24,7 @@ async def get_log(submission_id: str, current_user: dict = Depends(get_current_u
     is_admin = current_user.get("role") == "admin"
 
     if not (is_owner or is_admin or public):
-        await storage.access_log.append({
+        await storage.db.access_log.append({
             "user_id": current_user["user_id"],
             "problem_id": sub.get("problem_id"),
             "action": config.ACCESS_LOG_ACTION,
@@ -33,7 +33,7 @@ async def get_log(submission_id: str, current_user: dict = Depends(get_current_u
         })
         raise OJException(403, "permission denied")
 
-    await storage.access_log.append({
+    await storage.db.access_log.append({
         "user_id": current_user["user_id"],
         "problem_id": sub.get("problem_id"),
         "action": config.ACCESS_LOG_ACTION,
@@ -75,7 +75,7 @@ async def list_access_logs(
         raise OJException(400, "invalid page_size")
 
     filtered = []
-    for e in storage.access_log.entries:
+    for e in storage.db.access_log.entries:
         if user_id is not None and e.get("user_id") != user_id:
             continue
         if problem_id is not None and e.get("problem_id") != problem_id:

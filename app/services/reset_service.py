@@ -15,8 +15,8 @@ async def reset_all():
         for key in list(store.data.keys()):
             await store.delete(key)
 
-    await storage.access_log.clear()
-    await storage.ai_config.clear()
+    await storage.db.access_log.clear()
+    await storage.db.ai_config.clear()
     ai_service.clear_runtime()
     submission_service.clear_rate_limit()
 

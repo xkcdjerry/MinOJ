@@ -33,4 +33,4 @@ async def delete_problem_cascade(problem_id: str):
         if sub and sub.get("problem_id") == problem_id:
             await storage.db.submissions.delete(sid)
 
-    await storage.access_log.remove_by_problem(problem_id)
+    await storage.db.access_log.remove_by_problem(problem_id)
