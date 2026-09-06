@@ -40,8 +40,11 @@ async def get_log(submission_id: str, current_user: dict = Depends(get_current_u
         "time": user_service.now_date(),
         "status": "200",
     })
+    # 测试点明细仅对管理员或公开日志开放；普通提交者在 public_cases=False 时
+    # 只能看到总得分 score 与总分 counts。
+    show_details = is_admin or public
     return ok("success", {
-        "details": sub.get("details"),
+        "details": sub.get("details") if show_details else None,
         "score": sub.get("score"),
         "counts": sub.get("counts"),
     })
