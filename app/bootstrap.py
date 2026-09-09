@@ -1,5 +1,4 @@
 """启动引导（同步，import 时执行一次）：加载数据、创建初始管理员与默认语言。"""
-import shutil
 import sys
 from datetime import datetime
 
@@ -9,13 +8,11 @@ from app import config, storage
 
 
 def default_languages() -> dict:
-    # Linux 评分环境用 python3；本地开发/测试在无 python3 时回退到 python / 当前解释器
-    if shutil.which("python3"):
-        py = "python3"
-    elif shutil.which("python"):
-        py = "python"
-    else:
-        py = sys.executable
+    # python 评测命令使用当前解释器 sys.executable（加引号以防路径含空格）：
+    # - Linux：即运行服务的 python3；
+    # - Windows：避免 python3 是 Microsoft Store 占位符（exit code 9009）导致 RE；
+    # - venv：指向虚拟环境内解释器，依赖一致。
+    py = f'"{sys.executable}"'
     return {
         "python": {
             "name": "python",
@@ -55,6 +52,7 @@ def bootstrap_sync():
         }
         storage.db.users.put_sync(user_id, user)
 
+    # 内置默认语言（python/cpp）每次启动都刷新为正确命令，
+    # 避免旧数据里残留失效命令（如 Windows 的 python3 商店占位符）。
     for name, lang in default_languages().items():
-        if name not in storage.db.languages.data:
-            storage.db.languages.put_sync(name, lang)
+        storage.db.languages.put_sync(name, lang)
