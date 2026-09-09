@@ -45,6 +45,8 @@ def task_public(t: dict) -> dict:
         "progress": t.get("progress"),
         "result": t.get("result"),
         "usage": t.get("usage"),
+        "problem_id": t.get("problem_id"),
+        "inplace": t.get("inplace", False),
     }
 
 
@@ -86,7 +88,13 @@ def _extract_json(content: str) -> dict:
 
 def _build_prompt(task: dict) -> str:
     req = task.get("requirement", "")
-    ref = f"\n参考题目 id：{task['problem_id']}\n" if task.get("problem_id") else ""
+    pid = task.get("problem_id")
+    if pid and task.get("inplace"):
+        ref = f"\n请在原题（id=\"{pid}\"）基础上修改，输出 JSON 中的 id 必须保持为 \"{pid}\"。\n"
+    elif pid:
+        ref = f"\n请参考题目（id=\"{pid}\"）进行改编，输出 JSON 中的 id 请生成一个新的唯一 id。\n"
+    else:
+        ref = ""
     return (
         "你是 OJ 命题助手。请根据以下命题需求设计一道 OJ 题目，输出一个 JSON 对象，"
         "字段包含：id(字符串,唯一标识)、title、description、input_description、"
@@ -132,7 +140,7 @@ async def _emit(tid: str, event: str, data):
         pass
 
 
-async def create_task(user_id: str, requirement: str, problem_id=None) -> dict:
+async def create_task(user_id: str, requirement: str, problem_id=None, inplace: bool = False) -> dict:
     cfg = storage.db.ai_config.data
     if not (cfg.get("provider_url") and cfg.get("model") and cfg.get("api_key")):
         raise OJException(400, "model config not set")
@@ -145,6 +153,7 @@ async def create_task(user_id: str, requirement: str, problem_id=None) -> dict:
         "user_id": user_id,
         "requirement": requirement,
         "problem_id": problem_id,
+        "inplace": bool(inplace),
         "status": "pending",
         "progress": "waiting",
         "result": None,
@@ -170,6 +179,8 @@ async def _run(tid: str):
         cfg = storage.db.ai_config.data
         result = await call_model(cfg, task)
         problem_data = result["problem"]
+        if task.get("inplace") and task.get("problem_id"):
+            problem_data["id"] = task["problem_id"]  # 兜底：in-place 强制保留原题 id
         ProblemModel(**problem_data)  # 校验生成结果，失败抛 ValidationError
 
         task["result"] = problem_data

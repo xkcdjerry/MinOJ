@@ -27,7 +27,7 @@ async def get_model_config(current_user: dict = Depends(get_current_user)):
 
 @router.post("/api/ai/problem-tasks/")
 async def create_problem_task(body: AITaskCreate, current_user: dict = Depends(get_current_user)):
-    data = await ai_service.create_task(current_user["user_id"], body.requirement, body.problem_id)
+    data = await ai_service.create_task(current_user["user_id"], body.requirement, body.problem_id, body.inplace)
     return ok("task created", data)
 
 

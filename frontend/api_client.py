@@ -93,10 +93,10 @@ class ApiClient:
     def ai_get_config(self):
         return self._request("GET", "/api/ai/model-config")
 
-    def ai_create_task(self, requirement, problem_id=None):
+    def ai_create_task(self, requirement, problem_id=None, inplace=False):
         return self._request(
             "POST", "/api/ai/problem-tasks/",
-            json={"requirement": requirement, "problem_id": problem_id},
+            json={"requirement": requirement, "problem_id": problem_id, "inplace": inplace},
         )
 
     def ai_get_task(self, task_id):

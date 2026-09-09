@@ -105,3 +105,4 @@ class AIConfigModel(BaseModel):
 class AITaskCreate(BaseModel):
     requirement: str = Field(min_length=1)
     problem_id: Optional[str] = None
+    inplace: bool = False

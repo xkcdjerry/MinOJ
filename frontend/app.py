@@ -254,12 +254,13 @@ def page_problem_edit():
     pid = st.session_state.get("edit_problem")
     is_edit = bool(pid)  # pid 非空 => 编辑已有题目；pid 为 None => 新增（可带 AI 预填）
     initial = None
-    if pid:
+    if st.session_state.get("ai_import"):
+        # AI 预填内容优先：无论新增还是修改，表单都以 AI 生成结果为准
+        initial = st.session_state["ai_import"]
+    elif pid:
         status, body = client.get_problem(pid)
         if status and body.get("code") == 200:
             initial = body["data"]
-    elif st.session_state.get("ai_import"):
-        initial = st.session_state["ai_import"]
     problem_form(initial, is_edit)
 
 
@@ -393,12 +394,16 @@ def page_ai():
         if status and body.get("code") == 200:
             problem_ids = [p["id"] for p in body["data"]]
         problem_id = st.selectbox("参考/修改已有题目（可选）", ["（无）"] + problem_ids)
+        inplace = st.checkbox("In-place 修改原题（勾选则直接覆盖原题，否则在原题基础上创建新题）")
         submitted = st.form_submit_button("开始命题")
     if submitted:
         ref = None if problem_id == "（无）" else problem_id
-        status, body = client.ai_create_task(requirement, ref)
+        inplace_flag = bool(inplace and ref)
+        status, body = client.ai_create_task(requirement, ref, inplace=inplace_flag)
         if flash(status, body):
             st.session_state.ai_task = body["data"]["task_id"]
+            st.session_state.ai_task_problem_id = ref
+            st.session_state.ai_task_inplace = inplace_flag
 
     tid = st.session_state.get("ai_task")
     if tid:
@@ -421,9 +426,16 @@ def page_ai():
         if t.get("status") == "completed" and t.get("result"):
             st.success("命题完成")
             st.json(t["result"])
-            if st.button("✅ 导入到题目新增"):
-                st.session_state.edit_problem = None
-                st.session_state.ai_import = t["result"]
+            if st.button("✅ 导入到题目表单"):
+                ref = st.session_state.get("ai_task_problem_id")
+                inplace = st.session_state.get("ai_task_inplace", False)
+                result = dict(t["result"])
+                if ref and inplace:
+                    result["id"] = ref  # 兜底：in-place 编辑目标 id 一致
+                    st.session_state.edit_problem = ref
+                else:
+                    st.session_state.edit_problem = None  # 创建新题
+                st.session_state.ai_import = result
                 go("编辑题目")
         elif t.get("status") == "failed":
             st.error("命题失败，请检查模型配置与返回。")
