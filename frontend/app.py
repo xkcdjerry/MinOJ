@@ -409,21 +409,23 @@ def page_ai():
     if tid:
         st.divider()
         st.write(f"任务 `{tid}`")
-        placeholder = st.empty()
-        for _ in range(120):
-            status, body = client.ai_get_task(tid)
-            if not (status and body.get("code") == 200):
-                break
-            t = body["data"]
-            placeholder.write(f"状态: `{t['status']}`　进度: {t.get('progress')}")
-            if t.get("usage"):
-                placeholder.write(f"Tokens: {t['usage']['total_tokens']}　费用: {t['usage']['cost']} {t['usage']['currency']}")
-            if t["status"] in ("completed", "failed", "cancelled"):
-                break
-            time.sleep(1)
         status, body = client.ai_get_task(tid)
         t = body["data"] if status and body.get("code") == 200 else {}
-        if t.get("status") == "completed" and t.get("result"):
+
+        if not t:
+            st.error("无法获取任务状态。")
+        elif t.get("status") in ("pending", "running"):
+            st.write(f"状态: `{t['status']}`　进度: {t.get('progress')}")
+            if t.get("usage") and t["usage"].get("total_tokens"):
+                st.write(f"Tokens: {t['usage']['total_tokens']}　费用: {t['usage']['cost']} {t['usage']['currency']}")
+            if st.button("⛔ 中断任务"):
+                status, body = client.ai_cancel_task(tid)
+                flash(status, body)
+            # 用 st.rerun() 轮询，而不是在一个脚本执行里长循环阻塞：
+            # 长循环 + time.sleep 会导致前端收不到最终渲染，需切换页面才刷新。
+            time.sleep(1)
+            st.rerun()
+        elif t.get("status") == "completed" and t.get("result"):
             st.success("命题完成")
             st.json(t["result"])
             if st.button("✅ 导入到题目表单"):
@@ -439,10 +441,8 @@ def page_ai():
                 go("编辑题目")
         elif t.get("status") == "failed":
             st.error("命题失败，请检查模型配置与返回。")
-        if t.get("status") in ("pending", "running"):
-            if st.button("⛔ 中断任务"):
-                status, body = client.ai_cancel_task(tid)
-                flash(status, body)
+        elif t.get("status") == "cancelled":
+            st.info("任务已中断。")
 
 
 def main():
