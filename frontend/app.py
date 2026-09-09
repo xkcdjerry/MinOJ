@@ -39,6 +39,16 @@ def require_login():
     return True
 
 
+def go(page: str):
+    """按钮触发的导航：先把目标页暂存，再重跑。
+
+    不能直接写 st.session_state.page，因为 radio 已把 page 绑定为 widget key，
+    在其实例化之后修改会抛 StreamlitWidgetAlreadyInstantiatedError。
+    """
+    st.session_state.nav_target = page
+    st.rerun()
+
+
 def parse_json_field(text: str, label: str, default=None):
     if default is None:
         default = []
@@ -63,7 +73,7 @@ def page_login():
             status, body = client.login(username, password)
             if flash(status, body):
                 st.session_state.user = body["data"]
-                st.rerun()
+                go("题目列表")
     with tab_register:
         with st.form("register_form"):
             username = st.text_input("用户名", key="reg_user")
@@ -137,11 +147,12 @@ def page_problems():
         col1.markdown(f"**{p['id']}**  {p['title']}")
         if col2.button("查看", key=f"view_{p['id']}"):
             st.session_state.view_problem = p["id"]
-            st.rerun()
+            go("题目详情")
     st.divider()
     if st.button("➕ 新增题目"):
         st.session_state.edit_problem = None
-        st.rerun()
+        st.session_state.pop("ai_import", None)
+        go("编辑题目")
 
 
 # ---------- 页面：题目详情 / 编辑 ----------
@@ -173,13 +184,13 @@ def page_problem_detail():
 
     if st.button("✏️ 编辑此题"):
         st.session_state.edit_problem = pid
-        st.rerun()
+        go("编辑题目")
     if st.session_state.user["role"] == "admin":
         if st.button("🗑 删除此题"):
             status, body = client.delete_problem(pid)
             if flash(status, body):
                 st.session_state.pop("view_problem", None)
-                st.rerun()
+                go("题目列表")
 
 
 # ---------- 页面：新增 / 编辑题目 ----------
@@ -233,7 +244,8 @@ def problem_form(initial=None):
         if flash(status, body):
             st.session_state.view_problem = pid
             st.session_state.pop("edit_problem", None)
-            st.rerun()
+            st.session_state.pop("ai_import", None)
+            go("题目详情")
 
 
 def page_problem_edit():
@@ -245,6 +257,8 @@ def page_problem_edit():
         status, body = client.get_problem(pid)
         if status and body.get("code") == 200:
             initial = body["data"]
+    elif st.session_state.get("ai_import"):
+        initial = st.session_state["ai_import"]
     problem_form(initial)
 
 
@@ -279,7 +293,7 @@ def page_submit():
         status, body = client.submit(problem_id, language, code)
         if flash(status, body):
             st.session_state.watch_submission = body["data"]["submission_id"]
-            st.rerun()
+            go("评测详情")
 
     # 提交记录
     st.divider()
@@ -293,7 +307,7 @@ def page_submit():
                 col1.write(f"#{s['submission_id']}  {s.get('status')}  score={s.get('score')}/{s.get('counts')}")
                 if col2.button("详情", key=f"sub_{s['submission_id']}"):
                     st.session_state.watch_submission = s["submission_id"]
-                    st.rerun()
+                    go("评测详情")
         else:
             st.write("暂无提交。")
 
@@ -399,7 +413,7 @@ def page_ai():
             if st.button("✅ 导入到题目新增"):
                 st.session_state.edit_problem = None
                 st.session_state.ai_import = t["result"]
-                st.rerun()
+                go("编辑题目")
         elif t.get("status") == "failed":
             st.error("命题失败，请检查模型配置与返回。")
         if t.get("status") in ("pending", "running"):
@@ -409,42 +423,61 @@ def page_ai():
 
 
 def main():
+    # 处理按钮触发的导航请求（必须在 radio 实例化之前写入 widget key）
+    if "nav_target" in st.session_state:
+        st.session_state.page = st.session_state.nav_target
+        del st.session_state.nav_target
+
+    user = st.session_state.user
+
     with st.sidebar:
         st.title("OJ 系统")
-        if st.session_state.user:
-            st.write(f"当前用户：**{st.session_state.user['username']}**（{st.session_state.user['role']}）")
+        if user:
+            st.write(f"当前用户：**{user['username']}**（{user['role']}）")
             if st.button("退出登录"):
                 client.logout()
                 st.session_state.user = None
+                st.session_state.page = "登录 / 注册"
+                st.session_state.pop("view_problem", None)
+                st.session_state.pop("edit_problem", None)
                 st.rerun()
         else:
             st.write("未登录")
 
+        # 侧边栏单选是唯一导航来源；题目详情/编辑作为可选导航项动态出现
         pages = ["登录 / 注册"]
-        if st.session_state.user:
+        if user:
             pages += ["个人信息", "题目列表", "提交代码", "评测详情", "AI 智能命题"]
-            if st.session_state.user["role"] == "admin":
-                pages += ["用户管理"]
-        choice = st.radio("导航", pages)
+            if st.session_state.get("view_problem"):
+                pages.append("题目详情")
+            if "edit_problem" in st.session_state:
+                pages.append("编辑题目")
+            if user["role"] == "admin":
+                pages.append("用户管理")
 
-    if "edit_problem" in st.session_state:
-        page_problem_edit()
-    elif st.session_state.get("view_problem"):
-        page_problem_detail()
-    elif choice == "登录 / 注册":
+        if "page" not in st.session_state or st.session_state.page not in pages:
+            st.session_state.page = "登录 / 注册"
+        st.radio("导航", pages, key="page")
+
+    page = st.session_state.page
+    if page == "登录 / 注册":
         page_login()
-    elif choice == "个人信息":
+    elif page == "个人信息":
         page_profile()
-    elif choice == "用户管理":
-        page_user_admin()
-    elif choice == "题目列表":
+    elif page == "题目列表":
         page_problems()
-    elif choice == "提交代码":
+    elif page == "题目详情":
+        page_problem_detail()
+    elif page == "编辑题目":
+        page_problem_edit()
+    elif page == "提交代码":
         page_submit()
-    elif choice == "评测详情":
+    elif page == "评测详情":
         page_submission_detail()
-    elif choice == "AI 智能命题":
+    elif page == "AI 智能命题":
         page_ai()
+    elif page == "用户管理":
+        page_user_admin()
 
 
 main()
