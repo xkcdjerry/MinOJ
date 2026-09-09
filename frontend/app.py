@@ -326,7 +326,13 @@ def page_submission_detail():
         flash(status, body)
         return
     data = body["data"]
-    st.write(f"**Submission #{data['submission_id']}**  状态: `{data['status']}`")
+    st.write(
+        f"**Submission #{data['submission_id']}**　题目 `{data.get('problem_id')}`　"
+        f"语言 `{data.get('language')}`　状态: `{data['status']}`"
+    )
+    if data.get("code"):
+        st.markdown("**提交代码**")
+        st.code(data["code"], language=data.get("language") or "python")
     if data["status"] == "pending":
         st.info("评测进行中…")
         if st.button("🔄 刷新状态"):

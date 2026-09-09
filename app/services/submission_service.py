@@ -118,9 +118,18 @@ async def list_submissions(current_user: dict, user_id, problem_id, status, page
 
 
 def submission_detail(s: dict) -> dict:
+    # 规范要求字段全部出现；在此基础上补充 code/language/problem_id/user_id
+    # 便于评测详情页展示代码（规范允许额外 key-value）。
+    common = {
+        "submission_id": s["submission_id"],
+        "problem_id": s.get("problem_id"),
+        "user_id": s.get("user_id"),
+        "language": s.get("language"),
+        "code": s.get("code", ""),
+    }
     if s.get("status") == "pending":
         return {
-            "submission_id": s["submission_id"],
+            **common,
             "status": "pending",
             "score": None,
             "counts": None,
@@ -129,7 +138,7 @@ def submission_detail(s: dict) -> dict:
             "error_info": "",
         }
     return {
-        "submission_id": s["submission_id"],
+        **common,
         "status": s["status"],
         "score": s.get("score"),
         "counts": s.get("counts"),
