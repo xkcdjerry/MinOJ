@@ -194,8 +194,8 @@ def page_problem_detail():
 
 
 # ---------- 页面：新增 / 编辑题目 ----------
-def problem_form(initial=None):
-    is_edit = initial is not None
+def problem_form(initial=None, is_edit=False):
+    # is_edit 由调用方显式传入：有题目 id 才是"编辑"，AI 预填的新题仍是"新增"。
     st.subheader("编辑题目" if is_edit else "新增题目")
     with st.form("problem_form"):
         pid = st.text_input("题目 ID", value=initial.get("id", "") if initial else "")
@@ -252,6 +252,7 @@ def page_problem_edit():
     if not require_login():
         return
     pid = st.session_state.get("edit_problem")
+    is_edit = bool(pid)  # pid 非空 => 编辑已有题目；pid 为 None => 新增（可带 AI 预填）
     initial = None
     if pid:
         status, body = client.get_problem(pid)
@@ -259,7 +260,7 @@ def page_problem_edit():
             initial = body["data"]
     elif st.session_state.get("ai_import"):
         initial = st.session_state["ai_import"]
-    problem_form(initial)
+    problem_form(initial, is_edit)
 
 
 # ---------- 页面：提交评测 ----------
