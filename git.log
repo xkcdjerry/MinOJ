@@ -1,0 +1,114 @@
+commit 9d10e223291117f2540f2f6c354b2e23530a5a50
+Author: Jerry Jackson <49294431+xkcdjerry@users.noreply.github.com>
+Date:   Wed Sep 9 20:00:17 2026 +0800
+
+    fix: 修复windows系统下Python bug
+    
+    Python3指令在windows下会调用windows store导致Python提交RE
+
+commit 50ac209748c4342e2b16698fa572b12b4495e1a3
+Author: Jerry Jackson <49294431+xkcdjerry@users.noreply.github.com>
+Date:   Wed Sep 9 19:54:25 2026 +0800
+
+    feat: 增加评测详情查看代码功能
+
+commit 478da569e8887df2db2d32a1cd3b347cd97e18da
+Author: Jerry Jackson <49294431+xkcdjerry@users.noreply.github.com>
+Date:   Wed Sep 9 19:43:22 2026 +0800
+
+    fix: 网页端打开任何一个题之后会卡在题目界面，左边无论选什么都无法退出
+    
+    main() 里原来的路由逻辑是：
+    python
+    Copy
+    
+    if "edit_problem" in st.session_state:
+        page_problem_edit()
+    elif st.session_state.get("view_problem"):
+        page_problem_detail()   # ← 一旦点开题目，这里永远为真
+    elif choice == "登录 / 注册": ...
+    
+    点开任意题目后 view_problem 会一直存在于 st.session_state，于是每次都命中 elif view_problem 分支，侧边栏选什么都无法退出题目详情页。
+
+commit 26d226c99ec27abe439644b7228316139c4cd5ef
+Author: Jerry Jackson <49294431+xkcdjerry@users.noreply.github.com>
+Date:   Sun Sep 6 15:19:13 2026 +0800
+
+    fix: pytest bug where locks may be held incorrectly
+    
+    app/storage.py 在 import 时创建了模块级 asyncio.Lock（JsonStore / AccessLog / ConfigFile 各自一个）。而 pytest-asyncio 默认 asyncio_default_test_loop_scope = function，每个测试跑在独立事件循环里：
+    
+        锁第一次被获取时绑定到那个循环；
+        后续测试在新循环里再获取同一把锁 → RuntimeError: <Lock> is bound to a different event loop。
+    
+    由于提交会 asyncio.create_task(judge.run_judge(...)) 产生后台任务，它收尾时的 _update_user_stats（写 users 锁）可能跨过测试边界仍持锁，所以错误在完整套件里偶发、且落在下一个测试的 register 上。
+
+commit 877d6797b43f7c10d28241859a9a42e86d13182b
+Author: Jerry Jackson <49294431+xkcdjerry@users.noreply.github.com>
+Date:   Sun Sep 6 15:09:34 2026 +0800
+
+    fix: Agent corrected unpassed test #1
+    
+    重写 tests/test_logs.py，把原来的单一大用例拆成 7 个针对性用例，覆盖全部确认过的缺口：
+    用例    覆盖点  结果
+    test_owner_log_private_hides_details    public_cases=False 非管理员提交者：200、details 隐藏、保留 score/counts ❌ 失败
+    test_other_user_log_private_forbidden   其他普通用户 → 403      ✅
+    test_owner_log_public_shows_details     公开后提交者可见 details（result/time/memory）+ score/counts    ✅
+    test_other_user_log_public_shows_details        公开后其他用户可见 details + score/counts       ✅
+    test_admin_always_full_log      管理员（非提交者）在公开/非公开下都看完整日志   ✅
+    test_log_never_exposes_submission_details       公开日志不泄露 code/compile_info/run_info/error_info    ✅
+    test_log_audit  审计记录含 403 与 200   ✅
+    失败原因（不是测试写错）
+    
+    test_owner_log_private_hides_details 的失败证明：当前 app/routers/logs.py 的 get_log 只对「非 owner 且非 admin 且非 public」的情况返回 403，但对 owner 一律原样返回 details，没有按规格在 public_cases=False 时隐藏明细：
+    Copy
+    
+    AssertionError: assert [{'id': 1, 'result': 'AC', 'time': 0.051, 'memory': 5}, ...] is None
+    
+    即：非管理员提交者在 public_cases=False 时仍能看到每个测试点的 AC/WA 状态、耗时、内存，这违背了需求第一句「提交者本人可以访问自己的日志，但不能查看测试点明细 details」。
+
+commit 0ee906ff02182f6d79a6c832448ef75c2b73d199
+Author: Jerry Jackson <49294431+xkcdjerry@users.noreply.github.com>
+Date:   Sun Sep 6 14:53:37 2026 +0800
+
+    feat: Agent added missing tests
+    
+    Teacher Clarification:
+    当 public_cases=False 时，提交者本人可以访问自己的日志，但不能查看测试点明细 details，因此看不到每个测试点的 AC/WA 等状态、耗时和内存；只能看到总得分 score 和总分 counts。其他已登录普通用户访问该日志时返回 403。
+    当 public_cases=True 时，提交者本人和其他已登录普通用户都可以查看 details，包括每个测试点的状态、耗时和内存；按照当前响应结构，也能看到总得分 score 和总分 counts。
+    管理员不受 public_cases 设置影响，始终可以查看完整日志。日志公开不会同时开放用户代码、编译信息等 Step 2、3 中的提交详情。
+    
+    AI detected these missing test cases and added them to pytest:
+    
+    我已读完相关测试与响应结构（tests/test_logs.py、tests/conftest.py、app/routers/logs.py、app/services/judge.py）。结论：现有用例只覆盖了需求的一部分，存在多处缺失和弱断言。下面先列出问题，确认后再改。
+    现有覆盖情况
+    
+    tests/test_logs.py 中唯一的用例 test_log_visibility_and_audit 实际覆盖了：
+    需求点  是否覆盖        说明
+    其他普通用户 · public_cases=False → 403 ✅      bob 访问返回 403
+    其他普通用户 · public_cases=True → 200 且有 details     ⚠️ 弱覆盖        只断言 details is not None
+    管理员看到完整日志      ⚠️ 部分  但管理员同时是提交者，无法区分「管理员权限」与「提交者权限」
+    审计记录（额外功能）    ✅      覆盖
+    缺失 / 未正确覆盖的点
+    
+        提交者本人 = 非管理员场景完全缺失。 login(client) 默认是 admin，所以「提交者本人」这条权限路径从未被单独测试。
+            需求 A：public_cases=False 时，非管理员提交者应能访问自己日志（200），但 details 应为 None（隐藏），只保留 score 和 counts。→ 完全未测。
+        public_cases=True 时提交者本人能看到 details（B1） → 未测（当前只在 admin=owner 下测过）。
+        details 内容结构未断言（B3）：需求要求能看到每个测试点的 AC/WA 等状态、耗时、内存。现有代码里测试点字段是 result / time / memory，但测试只断言 details is not None，未验证 result（AC/WA）、time、memory。
+        public_cases=True 响应中的 score / counts 是否可见（B4） → 未断言。
+        管理员（非提交者）在 public_cases=False 时能否看完整日志（C1） → 未测。当前管理员即提交者，无法证明「管理员不受 public_cases 影响」且独立于 owner。
+        日志公开不泄露提交详情（C2） → 未测。需求要求公开日志不开放用户代码、compile_info / run_info / error_info 等 Step2/3 提交详情；应断言 /log 响应中不包含这些字段。
+    
+    另有一处语义偏差：现有第 27 行注释「提交者（管理员）可查看日志」实际测的是管理员权限，且断言 details is not None；它对「普通提交者在 public_cases=False 下看不到 details」这一核心需求没有验证价值。
+
+commit e29a7dc647a566b19b7d37a099ca5590c42c3f21
+Author: Jerry Jackson <49294431+xkcdjerry@users.noreply.github.com>
+Date:   Sun Sep 6 04:13:16 2026 +0800
+
+    fix: autofix by AI with pytest test suite
+
+commit db52388ecf1232d3c6dd5f7f951a96d8a2026b73
+Author: Jerry Jackson <49294431+xkcdjerry@users.noreply.github.com>
+Date:   Sun Sep 6 04:01:39 2026 +0800
+
+    feat: Initial Deepseek Harness Code

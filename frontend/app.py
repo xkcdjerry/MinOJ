@@ -340,8 +340,12 @@ def page_submission_detail():
         time.sleep(1)
         st.rerun()
     st.write(f"得分: {data.get('score')} / {data.get('counts')}")
-    st.markdown("**编译信息**"); st.json(data.get("compile_info"))
-    st.markdown("**运行信息**"); st.json(data.get("run_info"))
+    for label, key in (("编译信息", "compile_info"), ("运行信息", "run_info")):
+        st.markdown(f"**{label}**")
+        if data.get(key) is not None:
+            st.json(data[key])
+        else:
+            st.write("无")
     if data.get("error_info"):
         st.markdown("**错误信息**"); st.code(data["error_info"])
 

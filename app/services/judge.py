@@ -121,6 +121,11 @@ def _compile_sync(compile_cmd: list, workdir: str):
         )
     except subprocess.TimeoutExpired:
         return False, "compile timeout"
+    except FileNotFoundError:
+        # 编译器不存在（如未安装 g++）：作为编译失败返回，避免向上抛 WinError
+        return False, f"compiler not found: {compile_cmd[0]}"
+    except OSError as e:
+        return False, f"compile failed: {e}"
     if proc.returncode != 0:
         msg = (proc.stderr + proc.stdout).decode("utf-8", errors="replace") or "compile error"
         return False, msg
